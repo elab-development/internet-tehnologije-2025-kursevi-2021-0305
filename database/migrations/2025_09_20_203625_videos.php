@@ -16,6 +16,8 @@ return new class extends Migration
             $table->string('title');
             $table->string('video_url');
             $table->timestamps();
+            $table->dropColumn('url');
+
         });
     }
 

@@ -35,68 +35,77 @@ class CertificateController extends Controller
         ]);    
     }
 
-    public function generateCertificate($courseId)
-    {
-        $user = Auth::user();
-        $course = Course::findOrFail($courseId);
+   public function generateCertificate(Course $course)
+{
+    $user = Auth::user();
 
-        // Proveri da li je korisnik upisan na kurs
-        $enrollment = Enrollment::where('user_id', $user->id)
-                                ->where('course_id', $course->id)
-                                ->first();
-
-        if (!$enrollment) {
-            return response()->json(['error' => 'Niste upisani na ovaj kurs.'], 403);
-        }
-
-        // Proveri da li je korisnik pogledao sve videe kursa
-        $totalVideos = Video::where('course_id', $course->id)->count();
-        $watchedVideos = $user->watchedVideos()->where('course_id', $course->id)->count();
-
-        if ($watchedVideos < $totalVideos) {
-            return response()->json(['error' => 'Morate pogledati sve video lekcije da biste dobili sertifikat.'], 403);
-        }
-
-        // Generiši PDF sertifikat
-        $data = [
-            'name' => $user->name,
-            'course' => $course->title,
-            'date' => now()->format('d.m.Y'),
-        ];
-
-        $pdf = Pdf::loadView('certificate', $data);
-
-        // Kreiraj direktorijum ako ne postoji
-        $certificatePath = 'public/certificates/' . $user->id . '_course_' . $course->id . '.pdf';
-        Storage::makeDirectory('public/certificates');
-
-        // Sačuvaj PDF sertifikat u `storage/app/public/certificates`
-        Storage::put($certificatePath, $pdf->output());
-
-        // Sačuvaj sertifikat u bazi
-        $certificate = Certificate::create([
-            'user_id' => $user->id,
-            'course_id' => $course->id,
-            'certificate_url' => Storage::url($certificatePath),
-        ]);
-
-        return response()->json([
-            'success' => 'Sertifikat uspešno generisan.',
-            'certificate' => $certificate
-        ]);
+    // 1) Provera upisa
+    $isEnrolled = Enrollment::where('user_id', $user->id)
+                            ->where('course_id', $course->id)
+                            ->exists();
+    if (!$isEnrolled) {
+        return response()->json(['error' => 'Niste upisani na ovaj kurs.'], 403);
     }
+
+    // 2) Provera odgledanih videa (preko whereHas da ne traži course_id u pivotu)
+    $totalVideos   = $course->videos()->count(); // pretpostavka da Course ima relaciju videos()
+    $watchedVideos = $user->watchedVideos()      // pretpostavka da User ima belongsToMany(Video::class)
+        ->whereHas('course', fn($q) => $q->whereKey($course->id))
+        ->count();
+
+    if ($watchedVideos < $totalVideos) {
+        return response()->json(['error' => 'Morate pogledati sve video lekcije da biste dobili sertifikat.'], 403);
+    }
+
+    // 3) Generisanje PDF-a (uhvati potencijalne greške u view-u)
+    $data = [
+        'name'   => $user->name,
+        'course' => $course->title,
+        'date'   => now()->format('d.m.Y'),
+    ];
+
+    try {
+        $pdf = Pdf::loadView('certificate', $data);
+    } catch (\Throwable $e) {
+        \Log::error('PDF generation failed', ['msg' => $e->getMessage()]);
+        return response()->json([
+            'error' => 'Greška pri generisanju PDF-a. Proverite da li postoji view "certificate" i resursi u njemu.'
+        ], 500);
+    }
+
+    // 4) Snimanje na PUBLIC disk i pravilan URL
+    Storage::disk('public')->makeDirectory('certificates');
+    $filename = $user->id . 'course' . $course->id . '.pdf';
+    $path     = "certificates/{$filename}";
+
+    Storage::disk('public')->put($path, $pdf->output());
+    $url = asset('storage/' . $path); // radi uz php artisan storage:link
+
+    // 5) Upis/Update u bazu (da ne pravimo duplikate)
+    $certificate = Certificate::updateOrCreate(
+        ['user_id' => $user->id, 'course_id' => $course->id],
+        ['certificate_url' => $url]
+    );
+
+    return response()->json([
+    'success'     => 'Sertifikat uspešno generisan.',
+    'certificate' => $certificate,
+    'url'         => $url,
+]);
+}
     public function upload(Request $request)
     {
         $request->validate([
             'certificate' => 'required|mimes:pdf|max:10000',
             'course_id' => 'required|exists:courses,id',
+            'user_id' => 'required|exists:users,id' 
         ]);
     
         $path = $request->file('certificate')->store('certificates', 'public');
     
         $certificate = new Certificate();
         $certificate->file_path = $path;
-        $certificate->user_id = auth()->id();
+        $certificate->user_id = $request->user_id;
         $certificate->course_id = $request->course_id;
         $certificate->certificate_url = asset('storage/' . $path); // Dodaj URL sertifikata
         $certificate->save();
@@ -123,3 +132,4 @@ class CertificateController extends Controller
     }
     
 }
+

@@ -12,7 +12,7 @@ use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 class UserController extends Controller
 {
     use AuthorizesRequests;
-    // 🔍 Prikaz svih korisnika (samo admin)
+    //  Prikaz svih korisnika (samo admin)
     public function index()
     {
         $this->authorize('viewAny', User::class);
@@ -45,7 +45,7 @@ class UserController extends Controller
         return new UserResource($user);
     }
 
-    // 🗑️ Brisanje korisnika (samo admin)
+    // Brisanje korisnika (samo admin)
     public function destroy(User $user)
     {
         $this->authorize('delete', $user);
@@ -54,13 +54,13 @@ class UserController extends Controller
         return response()->json(['message' => 'User deleted']);
     }
 
-    // 🎓 Kursevi koje student pohađa
+    // Kursevi koje student pohađa
     public function enrolledCourses(User $user)
     {
         return response()->json($user->enrollments->map(fn($e) => $e->course));
     }
 
-    // 📚 Kursevi koje nastavnik predaje
+    // Kursevi koje nastavnik predaje
     public function teachingCourses(User $user)
     {
         return response()->json($user->courses);
