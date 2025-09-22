@@ -1,0 +1,11 @@
+.sidebar ul li:hover {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 5px;
+  }
+  
+  /* Aktivna stranica */
+  .sidebar ul li.active {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 5px;
+    font-weight: bold;
+  }
